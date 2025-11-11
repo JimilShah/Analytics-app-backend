@@ -1,53 +1,38 @@
 import { Router } from "express";
-import { PrismaClient } from "@prisma/client";
-import { Prisma } from "@prisma/client";
+import { prisma } from "../prisma";
 
-const prisma = new PrismaClient();
 const router = Router();
 
-/**
- * GET /cash-outflow?from=2024-10-01&to=2025-01-31
- * Returns expected outflow per due_date (grouped daily)
- */
 router.get("/", async (req, res) => {
   try {
-    const from = req.query.from as string | undefined;
-    const to = req.query.to as string | undefined;
+    const from = req.query.from ? new Date(req.query.from as string) : undefined;
+    const to = req.query.to ? new Date(req.query.to as string) : undefined;
 
-    // Build dynamic WHERE clause safely using Prisma.sql
-    const whereClauses: Prisma.Sql[] = [];
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        OR: [
+          { dueDate: { gte: from, lte: to } },
+          { date: { gte: from, lte: to } },
+        ],
+      },
+      select: { dueDate: true, date: true, total: true },
+    });
 
-    if (from) {
-      whereClauses.push(Prisma.sql`COALESCE("dueDate"::date, "date"::date) >= ${from}`);
+    const map: Record<string, number> = {};
+    for (const inv of invoices) {
+      const key = new Date(inv.dueDate ?? inv.date!).toISOString().slice(0, 10);
+      map[key] = (map[key] || 0) + Number(inv.total);
     }
-    if (to) {
-      whereClauses.push(Prisma.sql`COALESCE("dueDate"::date, "date"::date) <= ${to}`);
-    }
 
-    const whereClause =
-      whereClauses.length > 0
-        ? Prisma.sql`WHERE ${Prisma.join(whereClauses, Prisma.sql` AND `)}`
-        : Prisma.empty;
-
-    const rows: { due_date: string; expected_outflow: string }[] =
-      await prisma.$queryRawUnsafe(`
-        SELECT COALESCE("dueDate"::date, "date"::date) AS due_date,
-               SUM("total") AS expected_outflow
-        FROM "Invoice"
-        ${whereClauses.length ? whereClause.text : ""}
-        GROUP BY 1
-        ORDER BY 1;
-      `);
-
-    const formatted = rows.map((r) => ({
-      date: r.due_date,
-      expectedOutflow: Number(r.expected_outflow) || 0,
+    const result = Object.entries(map).map(([date, expectedOutflow]) => ({
+      date,
+      expectedOutflow,
     }));
 
-    res.json(formatted);
-  } catch (err: any) {
-    console.error("🔥 Error in /cash-outflow:", err.message);
-    res.status(500).json({ error: "Failed to fetch cash outflow", details: err.message });
+    res.json(result);
+  } catch (err) {
+    console.error("Error in /cash-outflow:", err);
+    res.status(500).json({ error: "Failed to fetch cash outflow" });
   }
 });
 

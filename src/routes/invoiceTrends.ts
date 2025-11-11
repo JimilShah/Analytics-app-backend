@@ -5,43 +5,45 @@ const router = Router();
 
 router.get("/", async (req, res) => {
   try {
-    // Fetch all invoices
+    const from = req.query.from ? new Date(req.query.from as string) : undefined;
+    const to = req.query.to ? new Date(req.query.to as string) : undefined;
+
     const invoices = await prisma.invoice.findMany({
+      where: {
+        date: {
+          gte: from,
+          lte: to,
+        },
+      },
       select: { date: true, total: true },
     });
 
-    // Filter out invalid ones manually
     const validInvoices = invoices.filter(
-      (inv) => inv.date && inv.total
+      (inv) => inv.date !== null && inv.total !== null
     );
 
-    if (validInvoices.length === 0) {
-      console.warn("No valid invoices found for trends");
-      return res.json([]);
-    }
-
-    // Group by month
-    const monthlyData: Record<string, { invoiceCount: number; totalSpend: number }> = {};
+    const monthlyData: Record<
+      string,
+      { invoiceCount: number; totalSpend: number }
+    > = {};
 
     for (const inv of validInvoices) {
       const d = new Date(inv.date!);
-      if (isNaN(d.getTime())) continue;
+      const month = d.toISOString().slice(0, 7); // YYYY-MM
 
-      const month = d.toISOString().slice(0, 7);
       if (!monthlyData[month]) {
         monthlyData[month] = { invoiceCount: 0, totalSpend: 0 };
       }
+
       monthlyData[month].invoiceCount += 1;
-      monthlyData[month].totalSpend += Number(inv.total) || 0;
+      monthlyData[month].totalSpend += Number(inv.total);
     }
 
-    const result = Object.entries(monthlyData)
-      .map(([month, data]) => ({
-        month,
-        invoiceCount: data.invoiceCount,
-        totalSpend: data.totalSpend,
-      }))
-      .sort((a, b) => (a.month > b.month ? 1 : -1));
+    const result = Object.entries(monthlyData).map(([month, data]) => ({
+      month,
+      invoiceCount: data.invoiceCount,
+      totalSpend: data.totalSpend,
+    }));
 
     res.json(result);
   } catch (err: any) {

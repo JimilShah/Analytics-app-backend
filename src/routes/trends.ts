@@ -1,35 +1,57 @@
 import { Router } from "express";
 import { prisma } from "../prisma";
-import { PrismaClient } from "@prisma/client";
-const prisma = new PrismaClient();
+
 const router = Router();
 
-/**
- * GET /invoice-trends?from=2024-01-01&to=2024-12-31
- * Returns array of { month: '2024-01', invoiceCount, totalSpend }
- */
 router.get("/", async (req, res) => {
   try {
-    const from = (req.query.from as string) || null;
-    const to = (req.query.to as string) || null;
+    const from = req.query.from ? new Date(req.query.from as string) : undefined;
+    const to = req.query.to ? new Date(req.query.to as string) : undefined;
 
-    // Build safe SQL
-    const rows: { month: string; invoice_count: number; total_spend: string }[] = await prisma.$queryRaw`
-      SELECT
-        to_char(date_trunc('month', date), 'YYYY-MM') AS month,
-        COUNT(*) AS invoice_count,
-        COALESCE(SUM(total),0) AS total_spend
-      FROM "Invoice"
-      ${from ? prisma.raw`WHERE date >= ${from}` : prisma.raw``}
-      ${to ? prisma.raw((from ? ` AND date <= ${to}` : ` WHERE date <= ${to}`)) : prisma.raw``}
-      GROUP BY 1
-      ORDER BY 1;
-    `;
+    const invoices = await prisma.invoice.findMany({
+      where: {
+        date: {
+          gte: from,
+          lte: to,
+        },
+      },
+      select: { date: true, total: true },
+    });
 
-    res.json(rows.map(r => ({ month: r.month, invoiceCount: Number(r.invoice_count), totalSpend: Number(r.total_spend) })));
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: "Failed to fetch invoice trends" });
+    const validInvoices = invoices.filter(
+      (inv) => inv.date !== null && inv.total !== null
+    );
+
+    const monthlyData: Record<
+      string,
+      { invoiceCount: number; totalSpend: number }
+    > = {};
+
+    for (const inv of validInvoices) {
+      const d = new Date(inv.date!);
+      const month = d.toISOString().slice(0, 7); // YYYY-MM
+
+      if (!monthlyData[month]) {
+        monthlyData[month] = { invoiceCount: 0, totalSpend: 0 };
+      }
+
+      monthlyData[month].invoiceCount += 1;
+      monthlyData[month].totalSpend += Number(inv.total);
+    }
+
+    const result = Object.entries(monthlyData).map(([month, data]) => ({
+      month,
+      invoiceCount: data.invoiceCount,
+      totalSpend: data.totalSpend,
+    }));
+
+    res.json(result);
+  } catch (err: any) {
+    console.error("🔥 Error in /invoice-trends:", err);
+    res.status(500).json({
+      error: "Failed to fetch invoice trends",
+      details: err.message,
+    });
   }
 });
 

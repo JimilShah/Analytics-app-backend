@@ -8,45 +8,61 @@ datasource db {
 }
 
 model Vendor {
-  id          String   @id @default(uuid())
+  id          String     @id @default(uuid())
   name        String
   email       String?
   phone       String?
   invoices    Invoice[]
-  createdAt   DateTime @default(now())
+  createdAt   DateTime    @default(now())
 }
 
 model Customer {
-  id        String   @id @default(uuid())
-  name      String
-  email     String?
-  invoices  Invoice[]
-  createdAt DateTime @default(now())
+  id          String     @id @default(uuid())
+  name        String
+  email       String?
+  invoices    Invoice[]
+  createdAt   DateTime    @default(now())
+}
+
+model Category {
+  id          String     @id @default(uuid())
+  name        String
+  invoices    Invoice[]
+  createdAt   DateTime    @default(now())
 }
 
 model Invoice {
-  id             String     @id @default(uuid())
+  id             String       @id @default(uuid())
   invoiceNumber  String
-  vendor         Vendor     @relation(fields: [vendorId], references: [id])
-  vendorId       String
-  customer       Customer   @relation(fields: [customerId], references: [id])
-  customerId     String
-  date           DateTime
+  vendorId       String?
+  customerId     String?
+  categoryId     String?
+
+  vendor         Vendor?      @relation(fields: [vendorId], references: [id], onDelete: Cascade)
+  customer       Customer?    @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  category       Category?    @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+
+  date           DateTime?
   dueDate        DateTime?
-  status         String
-  currency       String
-  subtotal       Float
-  tax            Float
-  total          Float
+  status         String?      @default("Pending")
+  currency       String?      @default("INR")
+  subtotal       Float?
+  tax            Float?
+  total          Float?
   payments       Payment[]
   lineItems      LineItem[]
-  createdAt      DateTime   @default(now())
+  createdAt      DateTime     @default(now())
+
+  @@index([vendorId])
+  @@index([customerId])
+  @@index([categoryId])
+  @@index([date])
 }
 
 model Payment {
   id         String   @id @default(uuid())
-  invoice    Invoice  @relation(fields: [invoiceId], references: [id])
   invoiceId  String
+  invoice    Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   amount     Float
   method     String?
   date       DateTime
@@ -54,8 +70,8 @@ model Payment {
 
 model LineItem {
   id          String   @id @default(uuid())
-  invoice     Invoice  @relation(fields: [invoiceId], references: [id])
   invoiceId   String
+  invoice     Invoice  @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
   description String
   quantity    Int
   unitPrice   Float
